@@ -1,0 +1,325 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Proyecto ACJ - Mapa de Tiempos y Distancias en Tiempo Real</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Leaflet CSS & JS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        body { font-family: 'Plus Jakarta Sans', sans-serif; }
+        #map { height: calc(100vh - 72px); width: 100%; }
+        .leaflet-popup-content-wrapper {
+            border-radius: 16px;
+            box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.15), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+            padding: 0;
+            overflow: hidden;
+        }
+        .leaflet-popup-content { margin: 0; line-height: 1.5; }
+        .pulse-sede {
+            animation: pulse-ring 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        @keyframes pulse-ring {
+            0%, 100% { transform: scale(1); opacity: 1; }
+            50% { transform: scale(1.15); opacity: 0.85; }
+        }
+    </style>
+</head>
+<body class="bg-slate-900 text-slate-100 flex flex-col h-screen overflow-hidden">
+
+    <!-- HEADER / NAVBAR -->
+    <header class="h-[72px] bg-slate-950 border-b border-slate-800 px-6 flex items-center justify-between z-30">
+        <div class="flex items-center gap-3">
+            <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-cyan-400 flex items-center justify-center font-black text-xl shadow-lg shadow-indigo-500/20">
+                A
+            </div>
+            <div>
+                <h1 class="text-lg font-bold tracking-tight text-white flex items-center gap-2">
+                    Proyecto ACJ <span class="text-xs font-semibold px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">Tráfico Waze en Vivo</span>
+                </h1>
+                <p class="text-xs text-slate-400">Sede La Soledad (Transversal 28B # 37-33, Bogotá)</p>
+            </div>
+        </div>
+
+        <!-- QUICK STATS -->
+        <div class="hidden md:flex items-center gap-4 text-xs">
+            <div class="bg-slate-900 border border-slate-800 rounded-xl px-4 py-2 flex items-center gap-3">
+                <span class="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                <div>
+                    <div class="text-slate-400">Total Personas</div>
+                    <div class="text-sm font-bold text-white" id="stat-total">85</div>
+                </div>
+            </div>
+            <div class="bg-slate-900 border border-slate-800 rounded-xl px-4 py-2">
+                <div class="text-slate-400">Tiempo Promedio</div>
+                <div class="text-sm font-bold text-indigo-300" id="stat-tiempo-prom">-</div>
+            </div>
+            <div class="bg-slate-900 border border-slate-800 rounded-xl px-4 py-2">
+                <div class="text-slate-400">Distancia Promedio</div>
+                <div class="text-sm font-bold text-cyan-300" id="stat-dist-prom">-</div>
+            </div>
+        </div>
+    </header>
+
+    <!-- MAIN APP LAYOUT -->
+    <div class="flex flex-1 relative overflow-hidden">
+        
+        <!-- SIDEBAR FILTER / LIST -->
+        <aside class="w-80 lg:w-96 bg-slate-950/95 backdrop-blur border-r border-slate-800 flex flex-col z-20 transition-all duration-300">
+            <!-- Search & Filters -->
+            <div class="p-4 border-b border-slate-800 space-y-3">
+                <div class="relative">
+                    <input type="text" id="input-buscar" placeholder="Buscar por nombre, barrio, vía..." 
+                           class="w-full bg-slate-900 border border-slate-700 text-sm rounded-xl px-4 py-2.5 pl-10 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 transition">
+                    <svg class="w-4 h-4 text-slate-400 absolute left-3.5 top-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path>
+                    </svg>
+                </div>
+
+                <!-- Filter badges -->
+                <div class="flex flex-wrap gap-1.5 text-[11px] font-medium">
+                    <button onclick="filtrarCategoria('todos')" class="filter-btn active px-2.5 py-1 rounded-lg bg-indigo-600 text-white hover:bg-indigo-500 transition" data-cat="todos">Todos</button>
+                    <button onclick="filtrarCategoria('bajo')" class="filter-btn px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-emerald-400 hover:bg-slate-800 transition" data-cat="bajo">&lt;25m</button>
+                    <button onclick="filtrarCategoria('medio')" class="filter-btn px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-yellow-400 hover:bg-slate-800 transition" data-cat="medio">25-45m</button>
+                    <button onclick="filtrarCategoria('alto')" class="filter-btn px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-orange-400 hover:bg-slate-800 transition" data-cat="alto">45-90m</button>
+                    <button onclick="filtrarCategoria('critico')" class="filter-btn px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-800 text-red-400 hover:bg-slate-800 transition" data-cat="critico">&gt;90m / Fuera</button>
+                </div>
+            </div>
+
+            <!-- List of items -->
+            <div id="lista-personas" class="flex-1 overflow-y-auto divide-y divide-slate-900/60 p-2 space-y-1">
+                <!-- Dynamically rendered -->
+            </div>
+        </aside>
+
+        <!-- MAP CONTAINER -->
+        <main class="flex-1 relative">
+            <div id="map"></div>
+
+            <!-- MAP FLOATING CONTROLS -->
+            <div class="absolute top-4 right-4 z-[1000] flex flex-col gap-2 bg-slate-950/90 backdrop-blur border border-slate-800 p-3 rounded-2xl shadow-2xl text-xs">
+                <div class="font-bold text-slate-300 mb-1 border-b border-slate-800 pb-1">Convenciones de Tráfico</div>
+                <div class="flex items-center gap-2 text-slate-300"><span class="w-3 h-3 rounded-full bg-emerald-500"></span> Flujo Rápido (&lt;25 min)</div>
+                <div class="flex items-center gap-2 text-slate-300"><span class="w-3 h-3 rounded-full bg-yellow-500"></span> Tráfico Medio (25-45 min)</div>
+                <div class="flex items-center gap-2 text-slate-300"><span class="w-3 h-3 rounded-full bg-orange-500"></span> Congestión Alta (45-90 min)</div>
+                <div class="flex items-center gap-2 text-slate-300"><span class="w-3 h-3 rounded-full bg-red-500"></span> Trayecto Crítico / Fuera</div>
+                <div class="flex items-center gap-2 text-amber-300 pt-1 border-t border-slate-800 font-semibold"><span class="w-3.5 h-3.5 rounded-full bg-amber-400 border-2 border-white"></span> Sede ACJ La Soledad</div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        const LAT_SEDE = 4.625728;
+        const LON_SEDE = -74.078406;
+        const PUNTOS = [{"nombre": "PACHON LONDOÑO DIEGO ALEXANDER ", "localidad": "RAFAEL URIBE URIBE ", "barrio": "LAS LOMAS ", "direccion": "CALLE 37 SUR # 11 D-61", "lat": 4.5781, "lon": -74.07005, "dist_km": 8.62, "tiempo_min": 18.1, "tiempo_txt": "18 min", "categoria": "bajo", "color": "#10b981", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.5781%2C-74.07005&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.5781,-74.07005/4.625728,-74.078406"}, {"nombre": "RUIZ ROJAS JULIAN ANDRES", "localidad": "BOSA ", "barrio": "BOSA BRASIL", "direccion": "CALLE 50 A SUR # 88 F - 32", "lat": 4.556, "lon": -74.1124, "dist_km": 11.54, "tiempo_min": 22.2, "tiempo_txt": "22 min", "categoria": "bajo", "color": "#10b981", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.556%2C-74.1124&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.556,-74.1124/4.625728,-74.078406"}, {"nombre": "ALVAREZ HERNANDEZ JUAN SEBASTIAN ", "localidad": "TEUSAQUILLO", "barrio": "SOLEDAD ", "direccion": "CARRERA 27A 43-53", "lat": 4.629682, "lon": -74.0786538, "dist_km": 0.51, "tiempo_min": 1.6, "tiempo_txt": "2 min", "categoria": "bajo", "color": "#10b981", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.629682%2C-74.0786538&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.629682,-74.0786538/4.625728,-74.078406"}, {"nombre": "BARRETO ROJAS OSMER DAVID ", "localidad": "CIUDAD BOLIVAR", "barrio": "PARAISO", "direccion": "CALLE 71CBIS #27F22SUR", "lat": 4.5203, "lon": -74.07885, "dist_km": 20.97, "tiempo_min": 52.0, "tiempo_txt": "52 min", "categoria": "alto", "color": "#f97316", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.5203%2C-74.07885&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.5203,-74.07885/4.625728,-74.078406"}, {"nombre": "APONTE YATE SANTIAGO", "localidad": "CIUDAD BOLIVAR", "barrio": "LA CORUÑA", "direccion": "CARRERA 46 #49A 11 SUR", "lat": 4.5577, "lon": -74.0893, "dist_km": 10.93, "tiempo_min": 22.3, "tiempo_txt": "22 min", "categoria": "bajo", "color": "#10b981", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.5577%2C-74.0893&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.5577,-74.0893/4.625728,-74.078406"}, {"nombre": "BELTRAN BECERRA JONATHAN JAVIER", "localidad": "CIUDAD BOLIVAR", "barrio": "PARAISO", "direccion": "CARRERA 27 I #71I SUR -40", "lat": 4.5203, "lon": -74.07885, "dist_km": 20.97, "tiempo_min": 52.0, "tiempo_txt": "52 min", "categoria": "alto", "color": "#f97316", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.5203%2C-74.07885&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.5203,-74.07885/4.625728,-74.078406"}, {"nombre": "RODRIGUEZ CALDAS SAMUEL ALEJANDRO ", "localidad": "CIUDAD BOLIVAR", "barrio": "CARACOLI", "direccion": "TRANSVERSAL 65 # 77 SUR - 92", "lat": 4.5305, "lon": -74.10635, "dist_km": 15.62, "tiempo_min": 30.9, "tiempo_txt": "31 min", "categoria": "medio", "color": "#eab308", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.5305%2C-74.10635&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.5305,-74.10635/4.625728,-74.078406"}, {"nombre": "PARRA ROJAS CESAR HERNAN", "localidad": "BOYACA", "barrio": "GUAYATA BOYACA", "direccion": "CALLE 6 CO# CARRERA 4 GUAYATA BOYACA", "lat": 4.96417, "lon": -73.4875, "dist_km": 123.95, "tiempo_min": 145.7, "tiempo_txt": "2 h 26 min", "categoria": "critico", "color": "#ef4444", "fuera": "SI", "waze_url": "https://www.waze.com/ul?ll=4.96417%2C-73.4875&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.96417,-73.4875/4.625728,-74.078406"}, {"nombre": "ARANDA RUA KEVIN DANILO ", "localidad": "USME", "barrio": "ALFONSO LOPEZ ", "direccion": "CARRERA 6 ESTE # 97D-93 SUR", "lat": 4.4761, "lon": -74.0613, "dist_km": 27.11, "tiempo_min": 53.5, "tiempo_txt": "54 min", "categoria": "alto", "color": "#f97316", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.4761%2C-74.0613&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.4761,-74.0613/4.625728,-74.078406"}, {"nombre": "MORA ORTEGA GABRIEL FERNANDO ", "localidad": "FONTIBON", "barrio": "VILLA CARMENZA", "direccion": "CALLE 16 I BIS # 118 - 33", "lat": 4.60832, "lon": -74.1339, "dist_km": 9.64, "tiempo_min": 18.5, "tiempo_txt": "18 min", "categoria": "bajo", "color": "#10b981", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.60832%2C-74.1339&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.60832,-74.1339/4.625728,-74.078406"}, {"nombre": "AVILA LANCHEROS ARNOLD YESID ", "localidad": "CIUDAD BOLIVAR", "barrio": "VILLA DEL RIO ", "direccion": "CALLE 57H SUR # 68 D 56", "lat": 4.5441, "lon": -74.1014, "dist_km": 12.54, "tiempo_min": 25.0, "tiempo_txt": "25 min", "categoria": "bajo", "color": "#10b981", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.5441%2C-74.1014&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.5441,-74.1014/4.625728,-74.078406"}, {"nombre": "QUIACHA LEGUIZAMON JHOSTYN SAIR ", "localidad": "SAN CRISTOBAL", "barrio": "SAN MARTIN DE LOBA", "direccion": "CARRERA 1C # 43A - 45 SUR", "lat": 4.5761855, "lon": -74.0801282, "dist_km": 8.14, "tiempo_min": 16.2, "tiempo_txt": "16 min", "categoria": "bajo", "color": "#10b981", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.5761855%2C-74.0801282&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.5761855,-74.0801282/4.625728,-74.078406"}, {"nombre": "NOVA SUAREZ JUAN CARLOS ", "localidad": "KENNEDY", "barrio": "PATIO HERMOSO", "direccion": "CALLE 38 SUR # 87 C 19", "lat": 4.6368302, "lon": -74.1647737, "dist_km": 11.4, "tiempo_min": 20.9, "tiempo_txt": "21 min", "categoria": "bajo", "color": "#10b981", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.6368302%2C-74.1647737&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.6368302,-74.1647737/4.625728,-74.078406"}, {"nombre": "PUENTES GALLO DILAN STEBAN", "localidad": "ENGATIVA", "barrio": "GARCES NAVAS", "direccion": "CARRERA 107 C # 76 - 95", "lat": 4.7041341, "lon": -74.1250892, "dist_km": 12.47, "tiempo_min": 22.4, "tiempo_txt": "22 min", "categoria": "bajo", "color": "#10b981", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.7041341%2C-74.1250892&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.7041341,-74.1250892/4.625728,-74.078406"}, {"nombre": "BUITRAGO CABRA MAICOL ANDRES", "localidad": "SANTAFE", "barrio": "EL DORADO", "direccion": "CARRERA 8 ESTE 1 B 55", "lat": 4.5772557, "lon": -74.0728671, "dist_km": 8.74, "tiempo_min": 19.9, "tiempo_txt": "20 min", "categoria": "bajo", "color": "#10b981", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.5772557%2C-74.0728671&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.5772557,-74.0728671/4.625728,-74.078406"}, {"nombre": "QUINTERO CASTILLO JOSÉ JESÚS ", "localidad": "MARTIREZ", "barrio": "LA FAVORITA", "direccion": "CALLE 17 A#16-61", "lat": 4.60934, "lon": -74.0728, "dist_km": 3.9, "tiempo_min": 8.4, "tiempo_txt": "8 min", "categoria": "bajo", "color": "#10b981", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.60934%2C-74.0728&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.60934,-74.0728/4.625728,-74.078406"}, {"nombre": "RODRIGUEZ ECHEVERRIA YOZETH EMANUEL ", "localidad": "SAN CRISTOBAL", "barrio": "VITELMA", "direccion": "TRANSVERSAL 10 ESTE 9 SUR 96 01", "lat": 4.624, "lon": -74.06295, "dist_km": 2.61, "tiempo_min": 8.7, "tiempo_txt": "9 min", "categoria": "bajo", "color": "#10b981", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.624%2C-74.06295&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.624,-74.06295/4.625728,-74.078406"}, {"nombre": "CABALLERO LOPEZ  MAICOL ANDRES ", "localidad": "MARTIRES", "barrio": "SANTA FE", "direccion": "CALLE 22 # 18-35", "lat": 4.6127911, "lon": -74.0778992, "dist_km": 3.25, "tiempo_min": 6.5, "tiempo_txt": "6 min", "categoria": "bajo", "color": "#10b981", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.6127911%2C-74.0778992&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.6127911,-74.0778992/4.625728,-74.078406"}, {"nombre": "RESTREPO LOZANO JHON DEIVID ", "localidad": "SANTA FE", "barrio": "GIRARDOT", "direccion": "CARRERA 2 # 2-44", "lat": 4.6017892, "lon": -74.0791799, "dist_km": 4.8, "tiempo_min": 12.5, "tiempo_txt": "12 min", "categoria": "bajo", "color": "#10b981", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.6017892%2C-74.0791799&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.6017892,-74.0791799/4.625728,-74.078406"}, {"nombre": "CAUSIL HERNANDEZ WILLIAM DAVID ", "localidad": "TEUSAQUILLO", "barrio": "nan", "direccion": "CALLE 34 # 15-35", "lat": 4.6247079, "lon": -74.0789356, "dist_km": 0.27, "tiempo_min": 1.1, "tiempo_txt": "1 min", "categoria": "bajo", "color": "#10b981", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.6247079%2C-74.0789356&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.6247079,-74.0789356/4.625728,-74.078406"}, {"nombre": "YUNDA CUNDA MANUEL STIVEN ", "localidad": "RAFAEL URIBE URIBE", "barrio": "MARIA DE LA PAZ", "direccion": "CALLE 60 #13 20", "lat": 4.5383004, "lon": -74.1051063, "dist_km": 14.28, "tiempo_min": 30.9, "tiempo_txt": "31 min", "categoria": "medio", "color": "#eab308", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.5383004%2C-74.1051063&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.5383004,-74.1051063/4.625728,-74.078406"}, {"nombre": "RUBIO DUARTE DAVID SANTIAGO", "localidad": "SAN CRISTOBAL", "barrio": "LA CASTAÑA ", "direccion": "CALLE 25 SUR # 11 ESTE - 32", "lat": 4.5985, "lon": -74.06405, "dist_km": 7.03, "tiempo_min": 14.4, "tiempo_txt": "14 min", "categoria": "bajo", "color": "#10b981", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.5985%2C-74.06405&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.5985,-74.06405/4.625728,-74.078406"}, {"nombre": "VARGAS RODRIGUEZ MIGUEL ANGEL ", "localidad": "SAN CRISTOBAL", "barrio": "QUINDIO", "direccion": "CALLE 46 B SUR # 16 A 40 ESTE", "lat": 4.5628, "lon": -74.0668, "dist_km": 11.22, "tiempo_min": 24.2, "tiempo_txt": "24 min", "categoria": "bajo", "color": "#10b981", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.5628%2C-74.0668&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.5628,-74.0668/4.625728,-74.078406"}, {"nombre": "ACEVEDO ORTIZ JOHN JAIRO ", "localidad": "CALI - VALLE DEL CAUCA ", "barrio": "CIUDAD DEL CAMPO", "direccion": "CALLE 95 # 15 -103", "lat": 3.43054, "lon": -76.5199, "dist_km": 438.1, "tiempo_min": 500.0, "tiempo_txt": "8 h 20 min", "categoria": "critico", "color": "#ef4444", "fuera": "SI", "waze_url": "https://www.waze.com/ul?ll=3.43054%2C-76.5199&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/3.43054,-76.5199/4.625728,-74.078406"}, {"nombre": "VILLALBA POVEDA HEIDY TATIANA ", "localidad": "RAFAEL URIBE URIBE", "barrio": "SANTA LUCIA", "direccion": "CALLE 42 SUR #21-05", "lat": 4.5699144, "lon": -74.1167285, "dist_km": 10.38, "tiempo_min": 19.9, "tiempo_txt": "20 min", "categoria": "bajo", "color": "#10b981", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.5699144%2C-74.1167285&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.5699144,-74.1167285/4.625728,-74.078406"}, {"nombre": "VEGA GACHA LUIS ALEJANDRO ", "localidad": "USAQUEN", "barrio": "CERRO NORTE ", "direccion": "CARRERA 1 A # 161 - 07", "lat": 4.7346897, "lon": -74.0160077, "dist_km": 18.24, "tiempo_min": 30.9, "tiempo_txt": "31 min", "categoria": "medio", "color": "#eab308", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.7346897%2C-74.0160077&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.7346897,-74.0160077/4.625728,-74.078406"}, {"nombre": "ALVAREZ GUTIERREZ YEIKER ", "localidad": "SANTA FE ", "barrio": "EL DORADO", "direccion": "CARRERA 6 ESTE # 2A - 49 SUR", "lat": 4.5727961, "lon": -74.0825986, "dist_km": 8.78, "tiempo_min": 18.1, "tiempo_txt": "18 min", "categoria": "bajo", "color": "#10b981", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.5727961%2C-74.0825986&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.5727961,-74.0825986/4.625728,-74.078406"}, {"nombre": "CONTRERAS CUELLAR EDINSON ROBERTO", "localidad": "SUBA", "barrio": "SANTA CECILIA", "direccion": "CALLE 132 BIS # 154C -17", "lat": 4.72664, "lon": -74.1597, "dist_km": 22.69, "tiempo_min": 35.1, "tiempo_txt": "35 min", "categoria": "medio", "color": "#eab308", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.72664%2C-74.1597&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.72664,-74.1597/4.625728,-74.078406"}, {"nombre": "PACHON VELANDIA ANDRES FELIPE ", "localidad": "PUENTE ARANDA", "barrio": "LA GUACA", "direccion": "CALLE 29 A SUR # 39 C - 20", "lat": 4.5917, "lon": -74.08545, "dist_km": 6.62, "tiempo_min": 12.9, "tiempo_txt": "13 min", "categoria": "bajo", "color": "#10b981", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.5917%2C-74.08545&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.5917,-74.08545/4.625728,-74.078406"}, {"nombre": "PRIETO SIERRA GIOVANNY ALEJANDRO ", "localidad": "SAN CRISTOBAL", "barrio": "CALVO SUR", "direccion": "CARRERA 7 # 6 - 16 SUR", "lat": 4.5667337, "lon": -74.0981976, "dist_km": 9.77, "tiempo_min": 18.9, "tiempo_txt": "19 min", "categoria": "bajo", "color": "#10b981", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.5667337%2C-74.0981976&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.5667337,-74.0981976/4.625728,-74.078406"}, {"nombre": "TARAZONA OROZCO CAMILO", "localidad": "TEUSAQUILLO ", "barrio": "PABLO XI ", "direccion": "CARRERA 53 # 53-41", "lat": 4.6469648, "lon": -74.0884944, "dist_km": 3.19, "tiempo_min": 6.2, "tiempo_txt": "6 min", "categoria": "bajo", "color": "#10b981", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.6469648%2C-74.0884944&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.6469648,-74.0884944/4.625728,-74.078406"}, {"nombre": "BONILLA VILLABON ANDERSON ANDRES ", "localidad": "CIUDAD BOLIVAR", "barrio": "LUCERO MEDIO", "direccion": "CARRERA 19D#64F-44SUR", "lat": 4.5322, "lon": -74.07445, "dist_km": 15.96, "tiempo_min": 38.5, "tiempo_txt": "38 min", "categoria": "medio", "color": "#eab308", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.5322%2C-74.07445&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.5322,-74.07445/4.625728,-74.078406"}, {"nombre": "DURAN FRANCO STEFANI YOENNIMAR", "localidad": "SUBA", "barrio": "SANTA CECILIA ", "direccion": "CALLE 137 # 156-16", "lat": 4.7350147, "lon": -74.0818958, "dist_km": 13.56, "tiempo_min": 23.9, "tiempo_txt": "24 min", "categoria": "bajo", "color": "#10b981", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.7350147%2C-74.0818958&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.7350147,-74.0818958/4.625728,-74.078406"}, {"nombre": "MILLAN PLAZAS DANIEL SANTIAGO ", "localidad": "SAN CRISTOBAL", "barrio": "LOS ALPES - FUTURO", "direccion": "CALLE 36 H BIS SUR #11A - 77", "lat": 4.5798, "lon": -74.07005, "dist_km": 8.45, "tiempo_min": 17.8, "tiempo_txt": "18 min", "categoria": "bajo", "color": "#10b981", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.5798%2C-74.07005&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.5798,-74.07005/4.625728,-74.078406"}, {"nombre": "RUBIO SILVA JEISSON ALEXANDER ", "localidad": "RAFAEL URIBE URIBE", "barrio": "BARRIO INGLES ", "direccion": "CALLE 38 SUR 26-48", "lat": 4.5660755, "lon": -74.109421, "dist_km": 10.23, "tiempo_min": 21.4, "tiempo_txt": "21 min", "categoria": "bajo", "color": "#10b981", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.5660755%2C-74.109421&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.5660755,-74.109421/4.625728,-74.078406"}, {"nombre": "MUÑOZ YOPASA ANDRES JOSE ", "localidad": "SUBA", "barrio": "LOS NARANJOS ", "direccion": "CALLE 129D # 86A - 23", "lat": 4.72358, "lon": -74.1113, "dist_km": 13.55, "tiempo_min": 24.5, "tiempo_txt": "24 min", "categoria": "bajo", "color": "#10b981", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.72358%2C-74.1113&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.72358,-74.1113/4.625728,-74.078406"}, {"nombre": "VANEGAS SILVA BRAYAN STEVEN ", "localidad": "RAFAEL URIBE URIBE", "barrio": "ALASKA", "direccion": "CALLE 87 A BIS A SUR #8A-19", "lat": 4.4931, "lon": -74.0684, "dist_km": 22.91, "tiempo_min": 57.7, "tiempo_txt": "58 min", "categoria": "alto", "color": "#f97316", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.4931%2C-74.0684&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.4931,-74.0684/4.625728,-74.078406"}, {"nombre": "BETANCOURT JULIO NELSON FABIÁN ", "localidad": "USME ", "barrio": "VILLA ALEJANDRIA", "direccion": "CALLE 69D BIS SUR # 9-26", "lat": 4.5247076, "lon": -74.1171372, "dist_km": 15.13, "tiempo_min": 28.9, "tiempo_txt": "29 min", "categoria": "medio", "color": "#eab308", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.5247076%2C-74.1171372&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.5247076,-74.1171372/4.625728,-74.078406"}, {"nombre": "GONZALEZ SARMIENTO DAVID ALEJANDRO ", "localidad": "USAQUÉN", "barrio": "LIJACA", "direccion": "CARRERA 8A # 188 A -33", "lat": 4.5829546, "lon": -74.0871404, "dist_km": 7.35, "tiempo_min": 13.8, "tiempo_txt": "14 min", "categoria": "bajo", "color": "#10b981", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.5829546%2C-74.0871404&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.5829546,-74.0871404/4.625728,-74.078406"}, {"nombre": "PINILLA REINA SANTIAGO ESTEBAN ", "localidad": "CIUDAD BOLIVAR", "barrio": "SIERRA MORENA", "direccion": "TRANSVERSAL 73 H BIS # 75-36 SUR", "lat": 4.5169, "lon": -74.10525, "dist_km": 17.89, "tiempo_min": 36.2, "tiempo_txt": "36 min", "categoria": "medio", "color": "#eab308", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.5169%2C-74.10525&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.5169,-74.10525/4.625728,-74.078406"}, {"nombre": "ARROLLAVE BERROCAL ARAMY JOSUE ", "localidad": "KENNEDY", "barrio": "SOCORRO", "direccion": "CALLE 48 BIS SUR #77K14", "lat": 4.5594, "lon": -74.10635, "dist_km": 12.13, "tiempo_min": 26.5, "tiempo_txt": "26 min", "categoria": "medio", "color": "#eab308", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.5594%2C-74.10635&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.5594,-74.10635/4.625728,-74.078406"}, {"nombre": "HERNANDEZ BONILLA JOHN BRANDON ", "localidad": " SAN CRISTOBAL", "barrio": " SANTA RITA SUR ORIENTAL", "direccion": "CALLE 48C SUR 4B ESTE 37", "lat": 4.5594, "lon": -74.0602, "dist_km": 12.15, "tiempo_min": 27.2, "tiempo_txt": "27 min", "categoria": "medio", "color": "#eab308", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.5594%2C-74.0602&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.5594,-74.0602/4.625728,-74.078406"}, {"nombre": "PULIDO BERNAL  JUAN DAVID ", "localidad": "CIUDAD BOLIVAR ", "barrio": "LA CORUÑA ", "direccion": "CALLE 58F SUR #47 -08", "lat": 4.5787015, "lon": -74.1523731, "dist_km": 10.95, "tiempo_min": 21.3, "tiempo_txt": "21 min", "categoria": "bajo", "color": "#10b981", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.5787015%2C-74.1523731&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.5787015,-74.1523731/4.625728,-74.078406"}, {"nombre": "MILLAN YATE MIGUEL ANGEL ", "localidad": "SUBA", "barrio": "nan", "direccion": "CALLE 135 # 126D-55 B", "lat": 4.7297, "lon": -74.1443, "dist_km": 17.99, "tiempo_min": 33.3, "tiempo_txt": "33 min", "categoria": "medio", "color": "#eab308", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.7297%2C-74.1443&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.7297,-74.1443/4.625728,-74.078406"}, {"nombre": "BARRERO MUÑOZ SANTIAGO ", "localidad": "KENNEDY", "barrio": "PATIO BONITO", "direccion": "CARRERA 93 D # 39 A - 11 SUR", "lat": 4.5747, "lon": -74.12015, "dist_km": 8.71, "tiempo_min": 16.1, "tiempo_txt": "16 min", "categoria": "bajo", "color": "#10b981", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.5747%2C-74.12015&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.5747,-74.12015/4.625728,-74.078406"}, {"nombre": "CARRERO JIMÉNEZ JUAN JOSÉ ", "localidad": "FONTIBON", "barrio": "CIUDAD SALITRE", "direccion": "AVENIDA CARRERA 68 D # 24 A - 50", "lat": 4.61648, "lon": -74.1014, "dist_km": 5.08, "tiempo_min": 9.9, "tiempo_txt": "10 min", "categoria": "bajo", "color": "#10b981", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.61648%2C-74.1014&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.61648,-74.1014/4.625728,-74.078406"}, {"nombre": "VELA LLANOS JOAN SEBASTIAN", "localidad": "CIUDAD BOLIVAR", "barrio": "JUAN  PABLO II", "direccion": "DIAGONAL 68 D SUR # 18M-90", "lat": 4.5254, "lon": -74.0739, "dist_km": 17.66, "tiempo_min": 42.6, "tiempo_txt": "43 min", "categoria": "medio", "color": "#eab308", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.5254%2C-74.0739&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.5254,-74.0739/4.625728,-74.078406"}, {"nombre": "VIDAL LEON YANPOOL SNEIDER", "localidad": "SAN CRISTOBAL", "barrio": "SAN CRISTOBAL SUR ", "direccion": "CARRERA 10 D ESTE # 13-37 SUR", "lat": 4.6189, "lon": -74.0635, "dist_km": 4.54, "tiempo_min": 9.6, "tiempo_txt": "10 min", "categoria": "bajo", "color": "#10b981", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.6189%2C-74.0635&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.6189,-74.0635/4.625728,-74.078406"}, {"nombre": "CASTELBLANCO MARIN  LUIS ALEJANDRO ", "localidad": "BOSA", "barrio": "LA PAZ", "direccion": "CARRERA 82 D 64-61 41 SUR", "lat": 4.5322, "lon": -74.1091, "dist_km": 15.21, "tiempo_min": 30.0, "tiempo_txt": "30 min", "categoria": "medio", "color": "#eab308", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.5322%2C-74.1091&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.5322,-74.1091/4.625728,-74.078406"}, {"nombre": "GARCIA MIGUEL ANGEL ", "localidad": "KENNEDY", "barrio": "CASA BLANCA", "direccion": "CARRERA 79 F # 50-44 SUR", "lat": 4.556, "lon": -74.10745, "dist_km": 12.19, "tiempo_min": 25.8, "tiempo_txt": "26 min", "categoria": "medio", "color": "#eab308", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.556%2C-74.10745&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.556,-74.10745/4.625728,-74.078406"}, {"nombre": "LAVAO GOMEZ JUAN SEBASTIAN", "localidad": "PUENTE ARANDA", "barrio": "SAN RAFAEL ", "direccion": "DIAGONAL 5 C BIS 45-10", "lat": 4.6344035, "lon": -74.1083568, "dist_km": 5.0, "tiempo_min": 10.7, "tiempo_txt": "11 min", "categoria": "bajo", "color": "#10b981", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.6344035%2C-74.1083568&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.6344035,-74.1083568/4.625728,-74.078406"}, {"nombre": "OTAVO ALVIS JUAN DAVID ", "localidad": "SAN CRISTOBAL ", "barrio": "PINARES DE SAN CRISTOBAL ", "direccion": "TRANSVERSAL 13 B# 47 B - 33 SUR", "lat": 4.6189, "lon": -74.08985, "dist_km": 2.65, "tiempo_min": 5.1, "tiempo_txt": "5 min", "categoria": "bajo", "color": "#10b981", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.6189%2C-74.08985&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.6189,-74.08985/4.625728,-74.078406"}, {"nombre": "ALEMAN HERNANDEZ CARLOS ANDRES", "localidad": "SAN CRISTOBAL ", "barrio": "ORACIO ORJUELA ", "direccion": "DIAGONAL 32 BIS SUR #10 -7 ESTE", "lat": 4.5866, "lon": -74.0635, "dist_km": 9.02, "tiempo_min": 17.3, "tiempo_txt": "17 min", "categoria": "bajo", "color": "#10b981", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.5866%2C-74.0635&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.5866,-74.0635/4.625728,-74.078406"}, {"nombre": "TOVAR BARRIOS MIGUEL SANTIAGO ", "localidad": "CAJICA\n", "barrio": "VEREDA CALAORRA\n", "direccion": "CARRERA 2 # 10ª 208 SUR", "lat": 4.6533817, "lon": -74.0836331, "dist_km": 3.61, "tiempo_min": 6.3, "tiempo_txt": "6 min", "categoria": "critico", "color": "#ef4444", "fuera": "SI", "waze_url": "https://www.waze.com/ul?ll=4.6533817%2C-74.0836331&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.6533817,-74.0836331/4.625728,-74.078406"}, {"nombre": "PRADA RUEDA ANDERSON ", "localidad": "USME", "barrio": "BARRIO PORTAL", "direccion": "CALLE 111 A SUR # 10-17 ESTE", "lat": 4.4523, "lon": -74.0635, "dist_km": 31.24, "tiempo_min": 50.3, "tiempo_txt": "50 min", "categoria": "alto", "color": "#f97316", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.4523%2C-74.0635&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.4523,-74.0635/4.625728,-74.078406"}, {"nombre": "OCHOA GONZALEZ DAVID SANTIAGO", "localidad": "Kennedy", "barrio": "VALLADOLID", "direccion": "CARRERA 82 # 8C-34", "lat": 4.6460813, "lon": -74.1474408, "dist_km": 11.94, "tiempo_min": 20.0, "tiempo_txt": "20 min", "categoria": "bajo", "color": "#10b981", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.6460813%2C-74.1474408&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.6460813,-74.1474408/4.625728,-74.078406"}, {"nombre": "PATIÑO SILVA JHOAN SANTIAGO", "localidad": "SAN CRISTOBAL", "barrio": "SAN MARTÍN", "direccion": "CARRERA 2 D # 41 SUR-27", "lat": 4.5713, "lon": -74.0651, "dist_km": 10.02, "tiempo_min": 20.9, "tiempo_txt": "21 min", "categoria": "bajo", "color": "#10b981", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.5713%2C-74.0651&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.5713,-74.0651/4.625728,-74.078406"}, {"nombre": "GALLEGO CARDONA DEIBY STIVEN", "localidad": "CIUDAD BOLIVAR", "barrio": "LA ESTRELLA", "direccion": "CARRERA 18 D SUR 73A 32", "lat": 4.5483602, "lon": -74.1436673, "dist_km": 14.13, "tiempo_min": 27.6, "tiempo_txt": "28 min", "categoria": "medio", "color": "#eab308", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.5483602%2C-74.1436673&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.5483602,-74.1436673/4.625728,-74.078406"}, {"nombre": "HERNANDEZ BARRIOS JOHAN STIVEN ", "localidad": "SAN CRISTOBAL", "barrio": "EL CÓRDOBA", "direccion": "CARRERA 2 A ESTE #27-35 SUR", "lat": 4.5951, "lon": -74.0591, "dist_km": 10.99, "tiempo_min": 19.6, "tiempo_txt": "20 min", "categoria": "bajo", "color": "#10b981", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.5951%2C-74.0591&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.5951,-74.0591/4.625728,-74.078406"}, {"nombre": "GONZALEZ PARDO LAURA YERALDIN ", "localidad": "SANTA FE", "barrio": "EL DORADO", "direccion": "CARRERA 7 ESTE 1-78", "lat": 4.59914, "lon": -74.05855, "dist_km": 5.76, "tiempo_min": 12.0, "tiempo_txt": "12 min", "categoria": "bajo", "color": "#10b981", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.59914%2C-74.05855&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.59914,-74.05855/4.625728,-74.078406"}, {"nombre": "ROSAS LONDOÑO MIGUEL ANGEL ", "localidad": "USAQUEN", "barrio": "CANAIMA", "direccion": "CALLE 196 C # 18 49", "lat": 4.773871, "lon": -74.0408137, "dist_km": 18.43, "tiempo_min": 26.0, "tiempo_txt": "26 min", "categoria": "medio", "color": "#eab308", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.773871%2C-74.0408137&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.773871,-74.0408137/4.625728,-74.078406"}, {"nombre": "ZAPATA MARTINEZ JHOAN FELIPE", "localidad": "KENNEDY", "barrio": "MARIA PAZ", "direccion": "CALLE 1 B # 81-18", "lat": 4.59302, "lon": -74.10855, "dist_km": 5.77, "tiempo_min": 10.3, "tiempo_txt": "10 min", "categoria": "bajo", "color": "#10b981", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.59302%2C-74.10855&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.59302,-74.10855/4.625728,-74.078406"}, {"nombre": "GUTIÉRREZ BOSSA SAMUEL ALFONSO ", "localidad": "ENGATIVA", "barrio": "VIÑA DEL MAR", "direccion": "CALLE 66A # 104 - 24", "lat": 4.6894025, "lon": -74.1086459, "dist_km": 10.21, "tiempo_min": 17.0, "tiempo_txt": "17 min", "categoria": "bajo", "color": "#10b981", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.6894025%2C-74.1086459&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.6894025,-74.1086459/4.625728,-74.078406"}, {"nombre": "BAYONA RATIVA DIEGO STEVEN", "localidad": "USAQUEN", "barrio": "BUENAVISTA", "direccion": "CARRERA 4 B # 191 A 27", "lat": 4.78682, "lon": -74.0662, "dist_km": 22.09, "tiempo_min": 34.4, "tiempo_txt": "34 min", "categoria": "medio", "color": "#eab308", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.78682%2C-74.0662&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.78682,-74.0662/4.625728,-74.078406"}, {"nombre": "HERAZO HERAZO ISAAC YESID ", "localidad": "SUBA", "barrio": "AURES 2", "direccion": "CARRERA 102 A F 130 C - 21", "lat": 4.7246, "lon": -74.1251, "dist_km": 14.15, "tiempo_min": 26.2, "tiempo_txt": "26 min", "categoria": "medio", "color": "#eab308", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.7246%2C-74.1251&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.7246,-74.1251/4.625728,-74.078406"}, {"nombre": "OSORIO GONZALEZ DEIVY GIOBANNY", "localidad": "SUBA", "barrio": "TIBABUYES", "direccion": "CALLE 142 C # 139-28", "lat": 4.7439504, "lon": -74.0936919, "dist_km": 15.25, "tiempo_min": 25.8, "tiempo_txt": "26 min", "categoria": "medio", "color": "#eab308", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.7439504%2C-74.0936919&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.7439504,-74.0936919/4.625728,-74.078406"}, {"nombre": "PEREZ GARCIA BRANDON DAVID", "localidad": "CIUDAD BOLIVAR", "barrio": "LUCERO BAJO", "direccion": "CALLE 67 SUR # 17G 50 - 01", "lat": 4.5271, "lon": -74.07335, "dist_km": 17.73, "tiempo_min": 42.6, "tiempo_txt": "43 min", "categoria": "medio", "color": "#eab308", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.5271%2C-74.07335&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.5271,-74.07335/4.625728,-74.078406"}, {"nombre": "GUERRERO BALMACEDA JOSE DANIEL ", "localidad": "CIUDAD BOLIVAR", "barrio": "LUCERO ALTO", "direccion": "CARRERA 18 L BIS A # 62A 13 SUR", "lat": 4.5356, "lon": -74.0739, "dist_km": 19.39, "tiempo_min": 47.5, "tiempo_txt": "48 min", "categoria": "alto", "color": "#f97316", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.5356%2C-74.0739&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.5356,-74.0739/4.625728,-74.078406"}, {"nombre": "NUÑEZ DIAZ JOHAN SANTIAGO", "localidad": "ENGATIVA", "barrio": "ENGATIVA", "direccion": "CALLE 69 A SUR # 77 I - 10", "lat": 4.5237, "lon": -74.10635, "dist_km": 16.2, "tiempo_min": 34.2, "tiempo_txt": "34 min", "categoria": "medio", "color": "#eab308", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.5237%2C-74.10635&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.5237,-74.10635/4.625728,-74.078406"}, {"nombre": "MOLANO TELLEZ MIGUEL ANGEL ", "localidad": "BARRIOS UNIDOS ", "barrio": "CHAPINERO", "direccion": "CARRERA 7 # 61 - 65", "lat": 4.5641652, "lon": -74.1006165, "dist_km": 9.98, "tiempo_min": 18.9, "tiempo_txt": "19 min", "categoria": "bajo", "color": "#10b981", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.5641652%2C-74.1006165&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.5641652,-74.1006165/4.625728,-74.078406"}, {"nombre": "NEIRA MONCADA MIGUEL ÁNGEL ", "localidad": "CIUDAD BOLIVAR", "barrio": "LUCERO", "direccion": "CARRERA 18 J # 64 - 45 SUR", "lat": 4.5322, "lon": -74.0739, "dist_km": 16.4, "tiempo_min": 38.5, "tiempo_txt": "38 min", "categoria": "medio", "color": "#eab308", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.5322%2C-74.0739&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.5322,-74.0739/4.625728,-74.078406"}, {"nombre": "BERNAL AHUMADA ANDRU NICOLAS", "localidad": "FONTIBON", "barrio": "VILLA  CARMENZA", "direccion": "CALLE 18 # 112 B - 04", "lat": 4.6796197, "lon": -74.1491671, "dist_km": 12.62, "tiempo_min": 22.0, "tiempo_txt": "22 min", "categoria": "bajo", "color": "#10b981", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.6796197%2C-74.1491671&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.6796197,-74.1491671/4.625728,-74.078406"}, {"nombre": "CUELLO VILLALBA DANIEL ", "localidad": "SUBA", "barrio": "SANTA BARBARA", "direccion": "CARRERA 121D # 128-39", "lat": 4.7316461, "lon": -74.1078336, "dist_km": 15.57, "tiempo_min": 27.5, "tiempo_txt": "28 min", "categoria": "medio", "color": "#eab308", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.7316461%2C-74.1078336&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.7316461,-74.1078336/4.625728,-74.078406"}, {"nombre": "MURILLO SANTOS JUNIOR SANTIAGO", "localidad": "SAN CRISTOBAL ", "barrio": "LA GLORIA", "direccion": "DIAGONAL 51 SUR 7 ESTE 38", "lat": 4.5543, "lon": -74.06185, "dist_km": 12.51, "tiempo_min": 28.2, "tiempo_txt": "28 min", "categoria": "medio", "color": "#eab308", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.5543%2C-74.06185&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.5543,-74.06185/4.625728,-74.078406"}, {"nombre": "NOVA FONQUE SALMA ZHARICK", "localidad": "SAN CRISTOBAL", "barrio": "LAS MERCEDES", "direccion": "CALLE 17 B SUR # 10 A - 28 ESTE", "lat": 4.6121, "lon": -74.0635, "dist_km": 5.56, "tiempo_min": 11.7, "tiempo_txt": "12 min", "categoria": "bajo", "color": "#10b981", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.6121%2C-74.0635&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.6121,-74.0635/4.625728,-74.078406"}, {"nombre": "CIRO QUICENO SEBASTIAN", "localidad": "SUBA", "barrio": "MAZUREN ", "direccion": "CALLE 152 B # 55-45", "lat": 4.74704, "lon": -74.09425, "dist_km": 15.74, "tiempo_min": 27.0, "tiempo_txt": "27 min", "categoria": "medio", "color": "#eab308", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.74704%2C-74.09425&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.74704,-74.09425/4.625728,-74.078406"}, {"nombre": "MARIN CASTRILLON JHON JAIDER", "localidad": "SUBA", "barrio": "VILLA ELISA", "direccion": "CARRERA 93 B # 132-07", "lat": 4.72664, "lon": -74.12015, "dist_km": 14.1, "tiempo_min": 24.9, "tiempo_txt": "25 min", "categoria": "bajo", "color": "#10b981", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.72664%2C-74.12015&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.72664,-74.12015/4.625728,-74.078406"}, {"nombre": "QUINAYAS CABEZAS LEINER SANTIAGO ", "localidad": "KENNEDY", "barrio": "BRITALIA", "direccion": "CARRERA 82#48 SUR -15", "lat": 4.6460813, "lon": -74.1474408, "dist_km": 11.93, "tiempo_min": 20.4, "tiempo_txt": "20 min", "categoria": "bajo", "color": "#10b981", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.6460813%2C-74.1474408&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.6460813,-74.1474408/4.625728,-74.078406"}, {"nombre": "GIL RODRIGUEZ YERSON SEBASTIAN", "localidad": "TUNJUELITO", "barrio": "SAN BENITO", "direccion": "CALLE 57 SUR # 14- 04", "lat": 4.5584337, "lon": -74.1284975, "dist_km": 11.22, "tiempo_min": 23.6, "tiempo_txt": "24 min", "categoria": "bajo", "color": "#10b981", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.5584337%2C-74.1284975&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.5584337,-74.1284975/4.625728,-74.078406"}, {"nombre": "RAMIREZ RODRIGUEZ ESTEBAN", "localidad": "SUBA", "barrio": "BERBENAL", "direccion": "CARRERA 16 # 183-43", "lat": 4.77866, "lon": -74.0728, "dist_km": 21.08, "tiempo_min": 34.6, "tiempo_txt": "35 min", "categoria": "medio", "color": "#eab308", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.77866%2C-74.0728&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.77866,-74.0728/4.625728,-74.078406"}, {"nombre": "FONTALVO MORA MICHELL DANIELA ", "localidad": "SUBA", "barrio": "ALASKA", "direccion": "CARRERA 100 B # 156C - 33", "lat": 4.75112, "lon": -74.124, "dist_km": 19.38, "tiempo_min": 36.2, "tiempo_txt": "36 min", "categoria": "medio", "color": "#eab308", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.75112%2C-74.124&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.75112,-74.124/4.625728,-74.078406"}, {"nombre": "RUIZ CORTEZ JHONIER ESNEIDER", "localidad": "CIUDAD BOLIVAR", "barrio": "MOCHUELO BAJO", "direccion": "CARRERA 18 H SUR # 93 B-04", "lat": 4.56819, "lon": -74.1540483, "dist_km": 12.72, "tiempo_min": 24.2, "tiempo_txt": "24 min", "categoria": "bajo", "color": "#10b981", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.56819%2C-74.1540483&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.56819,-74.1540483/4.625728,-74.078406"}, {"nombre": "GOMEZ RODRIGUEZ DIEGO ALEJANDRO", "localidad": "FONTIBON", "barrio": "SAN PABLO JERICO", "direccion": "CARRERA 126 # 20 - 10", "lat": 4.6732943, "lon": -74.1447464, "dist_km": 11.78, "tiempo_min": 20.1, "tiempo_txt": "20 min", "categoria": "bajo", "color": "#10b981", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.6732943%2C-74.1447464&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.6732943,-74.1447464/4.625728,-74.078406"}, {"nombre": "ARIAS BELTRAN GIANCARLO", "localidad": "SOACHA", "barrio": "QUINTAS DE LA LAGUNA", "direccion": "CALLE 3 SUR # 4 J 68", "lat": 4.5769781, "lon": -74.1769502, "dist_km": 15.72, "tiempo_min": 29.3, "tiempo_txt": "29 min", "categoria": "critico", "color": "#ef4444", "fuera": "SI", "waze_url": "https://www.waze.com/ul?ll=4.5769781%2C-74.1769502&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.5769781,-74.1769502/4.625728,-74.078406"}, {"nombre": "RODRIGUEZ RODRIGUEZ EDWIN SANTIAGO", "localidad": "SAN CRISTOBAL", "barrio": "SAN ISIDRO", "direccion": "CARRERA 7 A 35 B 95 SUR", "lat": 4.568535, "lon": -74.0944791, "dist_km": 9.48, "tiempo_min": 18.5, "tiempo_txt": "18 min", "categoria": "bajo", "color": "#10b981", "fuera": "NO", "waze_url": "https://www.waze.com/ul?ll=4.568535%2C-74.0944791&navigate=yes", "gmaps_url": "https://www.google.com/maps/dir/4.568535,-74.0944791/4.625728,-74.078406"}];
+
+        // Inicializar mapa Leaflet
+        const map = L.map('map', {
+            center: [LAT_SEDE, LON_SEDE],
+            zoom: 12,
+            zoomControl: false
+        });
+
+        L.control.zoom({ position: 'bottomright' }).addTo(map);
+
+        // Capas de mapa base de alta fidelidad (Esri - 100% libre, sin 403 ni restricciones de API)
+        const capaCalles = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}', {
+            attribution: 'Tiles &copy; Esri &mdash; Streets',
+            maxZoom: 19
+        }).addTo(map);
+
+        const capaSatelite = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+            attribution: 'Tiles &copy; Esri &mdash; Satellite',
+            maxZoom: 19
+        });
+
+        const capaTopo = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}', {
+            attribution: 'Tiles &copy; Esri &mdash; Topographic',
+            maxZoom: 19
+        });
+
+        // Selector de capas
+        L.control.layers({
+            "🗺️ Calles y Direcciones (Normal)": capaCalles,
+            "🛰️ Satélite": capaSatelite,
+            "🏔️ Topográfico": capaTopo
+        }, null, { position: 'bottomleft' }).addTo(map);
+
+        // Marcador Sede ACJ
+        const iconSede = L.divIcon({
+            className: 'sede-marker',
+            html: `
+                <div class="relative flex items-center justify-center">
+                    <div class="absolute w-10 h-10 rounded-full bg-amber-500/40 pulse-sede"></div>
+                    <div class="w-8 h-8 rounded-full bg-amber-500 border-2 border-white shadow-xl flex items-center justify-center text-slate-950 font-black text-sm">
+                        🏢
+                    </div>
+                </div>
+            `,
+            iconSize: [32, 32],
+            iconAnchor: [16, 16]
+        });
+
+        const markerSede = L.marker([LAT_SEDE, LON_SEDE], { icon: iconSede }).addTo(map);
+        markerSede.bindPopup(`
+            <div class="bg-slate-900 text-white p-4">
+                <div class="text-[10px] uppercase font-bold text-amber-400 tracking-wider">Destino Principal</div>
+                <h3 class="text-base font-extrabold text-white mt-0.5">Sede ACJ La Soledad</h3>
+                <p class="text-xs text-slate-300 mt-1">Transversal 28 B # 37 - 33, Barrio La Soledad, Bogotá</p>
+                <div class="mt-3 pt-2 border-t border-slate-800 text-[11px] text-slate-400">
+                    Punto de convergencia de todas las rutas del proyecto.
+                </div>
+            </div>
+        `);
+
+        // Markers de personas
+        let markersList = [];
+        let categoriaActiva = 'todos';
+        let textoBusqueda = '';
+
+        function crearIconoPersona(color) {
+            return L.divIcon({
+                className: 'person-marker',
+                html: `
+                    <div class="w-4 h-4 rounded-full border-2 border-white shadow-md transition-transform hover:scale-125" style="background-color: ${color}"></div>
+                `,
+                iconSize: [16, 16],
+                iconAnchor: [8, 8]
+            });
+        }
+
+        function renderizarMapaYLista() {
+            markersList.forEach(m => map.removeLayer(m.marker));
+            markersList = [];
+
+            const contenedorLista = document.getElementById('lista-personas');
+            contenedorLista.innerHTML = '';
+
+            let sumTiempo = 0;
+            let sumDist = 0;
+            let conteoValidos = 0;
+
+            const puntosFiltrados = PUNTOS.filter(p => {
+                const coincideCat = (categoriaActiva === 'todos' || p.categoria === categoriaActiva);
+                const coincideTxt = textoBusqueda === '' || 
+                    p.nombre.toLowerCase().includes(textoBusqueda) || 
+                    p.localidad.toLowerCase().includes(textoBusqueda) || 
+                    p.barrio.toLowerCase().includes(textoBusqueda) ||
+                    p.direccion.toLowerCase().includes(textoBusqueda);
+                return coincideCat && coincideTxt;
+            });
+
+            puntosFiltrados.forEach((p) => {
+                if (p.tiempo_min > 0) {
+                    sumTiempo += p.tiempo_min;
+                    sumDist += p.dist_km;
+                    conteoValidos++;
+                }
+
+                const marker = L.marker([p.lat, p.lon], { icon: crearIconoPersona(p.color) }).addTo(map);
+                
+                const popupHtml = `
+                    <div class="bg-slate-900 text-white p-4 w-72">
+                        <div class="flex items-center justify-between gap-2">
+                            <span class="text-[10px] font-bold px-2 py-0.5 rounded-full uppercase text-white" style="background-color: ${p.color}">${p.categoria}</span>
+                            <span class="text-xs font-semibold text-slate-400">${p.localidad}</span>
+                        </div>
+                        <h4 class="text-sm font-bold text-white mt-1.5 leading-snug">${p.nombre}</h4>
+                        <p class="text-xs text-slate-300 mt-1 flex items-start gap-1">
+                            📍 <span>${p.direccion}${p.barrio ? ' (' + p.barrio + ')' : ''}</span>
+                        </p>
+
+                        <div class="grid grid-cols-2 gap-2 mt-3 p-2.5 rounded-xl bg-slate-950 border border-slate-800 text-center">
+                            <div>
+                                <div class="text-[10px] text-slate-400">Tiempo con Tráfico</div>
+                                <div class="text-sm font-extrabold text-white mt-0.5">${p.tiempo_txt}</div>
+                            </div>
+                            <div>
+                                <div class="text-[10px] text-slate-400">Distancia Real</div>
+                                <div class="text-sm font-extrabold text-white mt-0.5">${p.dist_km} km</div>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-2 mt-3">
+                            <a href="${p.waze_url}" target="_blank" 
+                               class="text-center text-xs font-bold py-2 px-3 rounded-xl bg-cyan-500/20 text-cyan-300 hover:bg-cyan-500/30 border border-cyan-500/40 transition flex items-center justify-center gap-1">
+                                🚗 Waze en Vivo
+                            </a>
+                            <a href="${p.gmaps_url}" target="_blank" 
+                               class="text-center text-xs font-bold py-2 px-3 rounded-xl bg-indigo-500/20 text-indigo-300 hover:bg-indigo-500/30 border border-indigo-500/40 transition flex items-center justify-center gap-1">
+                                🗺️ Google Maps
+                            </a>
+                        </div>
+                    </div>
+                `;
+
+                marker.bindPopup(popupHtml);
+                markersList.push({ marker, data: p });
+
+                const itemDiv = document.createElement('div');
+                itemDiv.className = 'p-3 rounded-xl bg-slate-900/60 hover:bg-slate-800/90 border border-slate-800/80 cursor-pointer transition flex flex-col gap-1.5';
+                itemDiv.innerHTML = `
+                    <div class="flex items-center justify-between gap-2">
+                        <span class="text-xs font-bold text-white truncate">${p.nombre}</span>
+                        <span class="text-[11px] font-bold px-2 py-0.5 rounded-md text-white whitespace-nowrap" style="background-color: ${p.color}">
+                            ${p.tiempo_txt}
+                        </span>
+                    </div>
+                    <div class="text-[11px] text-slate-400 truncate flex items-center gap-1">
+                        <span>📍</span> <span class="truncate">${p.localidad} - ${p.direccion}</span>
+                    </div>
+                    <div class="text-[10px] text-slate-500 flex items-center justify-between pt-1 border-t border-slate-800/50">
+                        <span>Distancia: <strong class="text-slate-300">${p.dist_km} km</strong></span>
+                        <span class="text-indigo-400 font-medium hover:underline">Ver ruta →</span>
+                    </div>
+                `;
+
+                itemDiv.onclick = () => {
+                    map.flyTo([p.lat, p.lon], 15, { duration: 1.2 });
+                    marker.openPopup();
+                };
+
+                contenedorLista.appendChild(itemDiv);
+            });
+
+            document.getElementById('stat-total').innerText = puntosFiltrados.length;
+            if (conteoValidos > 0) {
+                const promMin = Math.round(sumTiempo / conteoValidos);
+                const promKm = (sumDist / conteoValidos).toFixed(1);
+                document.getElementById('stat-tiempo-prom').innerText = promMin + ' min';
+                document.getElementById('stat-dist-prom').innerText = promKm + ' km';
+            } else {
+                document.getElementById('stat-tiempo-prom').innerText = '-';
+                document.getElementById('stat-dist-prom').innerText = '-';
+            }
+        }
+
+        function filtrarCategoria(cat) {
+            categoriaActiva = cat;
+            document.querySelectorAll('.filter-btn').forEach(btn => {
+                if (btn.dataset.cat === cat) {
+                    btn.classList.add('bg-indigo-600', 'text-white');
+                    btn.classList.remove('bg-slate-900');
+                } else {
+                    btn.classList.remove('bg-indigo-600', 'text-white');
+                    btn.classList.add('bg-slate-900');
+                }
+            });
+            renderizarMapaYLista();
+        }
+
+        document.getElementById('input-buscar').addEventListener('input', (e) => {
+            textoBusqueda = e.target.value.toLowerCase().trim();
+            renderizarMapaYLista();
+        });
+
+        // Iniciar
+        renderizarMapaYLista();
+    </script>
+</body>
+</html>
